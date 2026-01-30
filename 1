@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>21st Floor of Pain</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Honk&family=Montserrat:wght@400;700&family=Pixelify+Sans:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #ff4500;
+            --accent: #ffd700;
+            --bg: #0d0d0d;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050505;
+            color: #fff;
+            font-family: 'Pixelify Sans', sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 150px rgba(255, 69, 0, 0.3);
+            border: 8px solid #1a1a1a;
+            background: var(--bg);
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+
+        #ui-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .menu-screen {
+            pointer-events: auto;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 40px;
+            border-radius: 8px;
+            text-align: center;
+            border: 4px solid var(--primary);
+            box-shadow: 0 0 30px rgba(255, 69, 0, 0.4);
+        }
+
+        h1 {
+            font-family: 'Honk', system-ui;
+            font-size: 84px;
+            margin: 0 0 20px 0;
+            line-height: 1;
+        }
+
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 24px;
+            cursor: pointer;
+            margin: 10px;
+            font-family: 'Pixelify Sans', sans-serif;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            box-shadow: 0 4px 0 #8b0000;
+        }
+
+        .btn:hover {
+            background: #ff6347;
+            transform: translateY(-2px);
+        }
+
+        .top-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            pointer-events: auto;
+            display: flex;
+            gap: 10px;
+            z-index: 20;
+        }
+
+        .control-icon-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid white;
+            color: white;
+            padding: 8px 15px;
+            cursor: pointer;
+            font-family: 'Pixelify Sans', sans-serif;
+            font-size: 16px;
+        }
+
+        .hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 24px;
+            color: var(--accent);
+            text-shadow: 2px 2px #000;
+            display: flex;
+            gap: 30px;
+        }
+
+        .wait-hint {
+            position: absolute;
+            bottom: 50px;
+            font-size: 32px;
+            color: #fff;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.05); opacity: 0.7; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div class="top-controls">
+        <button class="control-icon-btn" onclick="toggleMute()" id="mute-btn">SOUND: ON</button>
+        <button class="control-icon-btn" onclick="togglePause()">PAUSE (ESC)</button>
+    </div>
+    
+    <div class="hud" id="hud" style="display: none;"></div>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-overlay">
+        <div id="start-screen" class="menu-screen">
+            <h1>21st Floor</h1>
+            <p style="color: #aaa; margin-bottom: 30px;">THE ASCENSION OF PAIN</p>
+            <button class="btn" onclick="startGame(1)">Single Player</button>
+            <button class="btn" onclick="startGame(2)">Split Screen</button>
+            <div style="margin-top: 20px; font-size: 14px; color: #666;">
+                P1: WASD | P2: ARROWS
+            </div>
+        </div>
+
+        <div id="pause-screen" class="menu-screen" style="display: none;">
+            <h1>PAUSED</h1>
+            <button class="btn" onclick="togglePause()">Resume</button>
+            <button class="btn" onclick="location.reload()">Quit to Menu</button>
+        </div>
+
+        <div id="game-over-screen" class="menu-screen" style="display: none;">
+            <h1>WASTED</h1>
+            <div id="final-results" style="margin: 20px 0; line-height: 1.6;"></div>
+            <button class="btn" onclick="location.reload()">Retry</button>
+        </div>
+
+        <div id="waiting-hint" class="wait-hint" style="display: none;">
+            JUMP TO START CLIMBING
+        </div>
+    </div>
+</div>
+
+<script>
+    /** AUDIO SYSTEM **/
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let isMuted = false;
+
+    function toggleMute() {
+        isMuted = !isMuted;
+        document.getElementById('mute-btn').innerText = isMuted ? "SOUND: OFF" : "SOUND: ON";
+    }
+
+    function playSound(type) {
+        if (isMuted) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+
+        if (type === 'jump') {
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(150, now);
+            osc.frequency.exponentialRampToValueAtTime(400, now + 0.1);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+            osc.start(); osc.stop(now + 0.1);
+        } else if (type === 'land') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(100, now);
+            gain.gain.setValueAtTime(0.05, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.05);
+            osc.start(); osc.stop(now + 0.05);
+        } else if (type === 'break') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(60, now);
+            osc.frequency.linearRampToValueAtTime(20, now + 0.3);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.3);
+            osc.start(); osc.stop(now + 0.3);
+        } else if (type === 'death') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(200, now);
+            osc.frequency.exponentialRampToValueAtTime(20, now + 1);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.linearRampToValueAtTime(0, now + 1);
+            osc.start(); osc.stop(now + 1);
+        } else if (type === 'powerup') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(400, now);
+            osc.frequency.exponentialRampToValueAtTime(800, now + 0.2);
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.2);
+            osc.start(); osc.stop(now + 0.2);
+        }
+    }
+
+    /** CORE VARIABLES **/
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const WIDTH = 900;
+    const HEIGHT = 700;
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+
+    const GRAVITY = 0.5;
+    const JUMP_FORCE = -13;
+    const MOVE_SPEED = 5.5;
+    const PLATFORM_W = 120;
+    const PLATFORM_H = 20;
+
+    let gameState = 'MENU';
+    let playerCount = 1;
+    let towerSpeed = 0.8;
+    let frames = 0;
+    let isPaused = false;
+    let hasStarted = false;
+    let timeStopTimer = 0; // Frames for time stop
+
+    const keys = {};
+    window.addEventListener('keydown', e => {
+        keys[e.code] = true;
+        if(e.code === 'Escape') togglePause();
+    });
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    function togglePause() {
+        if (gameState !== 'PLAYING') return;
+        isPaused = !isPaused;
+        document.getElementById('pause-screen').style.display = isPaused ? 'block' : 'none';
+    }
+
+    class Player {
+        constructor(id, x, controls, world) {
+            this.id = id;
+            this.world = world;
+            this.x = x;
+            this.y = HEIGHT - 200;
+            this.vx = 0;
+            this.vy = 0;
+            this.w = 36;
+            this.h = 52;
+            this.controls = controls;
+            this.isGrounded = false;
+            this.isDead = false;
+            this.score = 0;
+            this.facing = 1;
+            this.jumpBoost = 1;
+        }
+
+        update() {
+            if (this.isDead) return;
+
+            if (keys[this.controls.left]) { this.vx = -MOVE_SPEED; this.facing = -1; }
+            else if (keys[this.controls.right]) { this.vx = MOVE_SPEED; this.facing = 1; }
+            else { this.vx *= 0.8; }
+            this.x += this.vx;
+
+            const minX = this.world.xOff;
+            const maxX = this.world.xOff + this.world.width - this.w;
+            if (this.x < minX) this.x = minX;
+            if (this.x > maxX) this.x = maxX;
+
+            if (keys[this.controls.up] && this.isGrounded) {
+                this.vy = JUMP_FORCE * this.jumpBoost;
+                this.isGrounded = false;
+                this.jumpBoost = 1;
+                playSound('jump');
+                if (!hasStarted) {
+                    hasStarted = true;
+                    document.getElementById('waiting-hint').style.display = 'none';
+                }
+            }
+
+            this.vy += GRAVITY;
+            this.y += this.vy;
+
+            const viewY = this.y - this.world.cameraY;
+            if (viewY < HEIGHT * 0.4) {
+                this.world.cameraY -= (HEIGHT * 0.4 - viewY) * 0.1;
+            }
+
+            if (this.y - this.world.cameraY > HEIGHT + 100) {
+                this.isDead = true;
+                playSound('death');
+            }
+        }
+
+        draw(ctx) {
+            const drawX = this.x;
+            const drawY = this.y - this.world.cameraY;
+            ctx.save();
+            ctx.translate(drawX + this.w/2, drawY + this.h/2);
+            if (this.facing === -1) ctx.scale(-1, 1);
+            if (this.id === 1) {
+                ctx.fillStyle = '#5d4037'; ctx.fillRect(-22, -26, 44, 10); ctx.fillRect(-12, -34, 24, 12);
+                ctx.fillStyle = '#ffdbac'; ctx.fillRect(-14, -16, 28, 16);
+                ctx.fillStyle = '#f4e1d2'; ctx.fillRect(-16, 0, 32, 26);
+                ctx.fillStyle = '#3e2723'; ctx.fillRect(-16, 20, 10, 8); ctx.fillRect(6, 20, 10, 8);
+            } else {
+                ctx.fillStyle = '#d32f2f'; ctx.fillRect(-14, -26, 28, 20);
+                ctx.fillStyle = '#1976d2'; ctx.fillRect(-16, -6, 32, 20);
+                ctx.fillStyle = '#d32f2f'; ctx.fillRect(-6, -6, 12, 20);
+                ctx.fillStyle = '#fff'; ctx.fillRect(4, -20, 8, 6);
+            }
+            ctx.restore();
+        }
+    }
+
+    class Platform {
+        constructor(x, y, type) {
+            this.x = x; this.y = y; this.w = PLATFORM_W; this.h = PLATFORM_H;
+            this.type = type; this.touched = false; this.broken = false;
+            this.timer = 0; this.seed = Math.random();
+        }
+
+        draw(ctx, cameraY) {
+            if (this.broken) return;
+            const dy = this.y - cameraY;
+            if (dy < -200 || dy > HEIGHT + 200) return;
+            ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(this.x + 8, dy + 8, this.w, this.h);
+            let color = '#555', accent = '#333';
+            if (this.type === 'fragile') { color = '#e74c3c'; accent = '#962d22'; }
+            if (this.type === 'boost') { color = '#2ecc71'; accent = '#217e46'; }
+            if (this.type === 'time') { color = '#9b59b6'; accent = '#6a3a7d'; }
+            ctx.fillStyle = color; ctx.fillRect(this.x, dy, this.w, this.h);
+            ctx.fillStyle = accent; ctx.fillRect(this.x, dy + this.h - 4, this.w, 4);
+            ctx.fillRect(this.x + this.w - 4, dy, 4, this.h);
+            if (this.type === 'fragile' && this.touched) {
+                ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 2; ctx.beginPath();
+                for(let i=0; i<3; i++) {
+                    let ox = 20 + i*30; ctx.moveTo(this.x + ox, dy);
+                    ctx.lineTo(this.x + ox + (this.seed*20-10), dy + this.h);
+                }
+                ctx.stroke();
+            }
+        }
+    }
+
+    class LavaBall {
+        constructor(x, y, vx, vy) {
+            this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+            this.size = 6 + Math.random() * 8;
+        }
+        update() { this.x += this.vx; this.y += this.vy; this.vy += 0.25; }
+        draw(ctx, cameraY) {
+            ctx.fillStyle = '#ff4500';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y - cameraY, this.size, 0, Math.PI*2);
+            ctx.fill();
+        }
+    }
+
+    class World {
+        constructor(id, xOff, width) {
+            this.id = id; this.xOff = xOff; this.width = width;
+            this.cameraY = 0; this.platforms = []; this.lavaBalls = [];
+            this.player = null; this.lastGenY = HEIGHT - 50;
+            this.init();
+        }
+
+        init() {
+            const ctrls = this.id === 1 ? {up:'KeyW', left:'KeyA', right:'KeyD'} : {up:'ArrowUp', left:'ArrowLeft', right:'ArrowRight'};
+            this.player = new Player(this.id, this.xOff + this.width/2 - 18, ctrls, this);
+            this.platforms.push(new Platform(this.xOff + this.width/2 - 60, HEIGHT - 120, 'normal'));
+            for(let i=0; i<25; i++) this.generate();
+        }
+
+        generate() {
+            let topY = this.lastGenY;
+            for(let p of this.platforms) if(p.y < topY) topY = p.y;
+            const gapY = 80 + Math.random() * 100 - (towerSpeed * 20);
+            const lastP = this.platforms[this.platforms.length-1];
+            let minX = Math.max(this.xOff + 10, lastP.x - 200);
+            let maxX = Math.min(this.xOff + this.width - PLATFORM_W - 10, lastP.x + 200);
+            const x = minX + Math.random() * (maxX - minX);
+
+            let type = 'normal';
+            const r = Math.random();
+            const elapsed = frames / 60;
+            
+            // Logic: After 3 minutes, fragile platforms are doubled
+            let fragileChance = (elapsed > 180) ? 0.30 : 0.15;
+            if (r < fragileChance) type = 'fragile';
+            else if (r < fragileChance + 0.05) type = 'boost';
+            else if (r < fragileChance + 0.08) type = 'time';
+
+            this.platforms.push(new Platform(x, topY - gapY, type));
+            this.lastGenY = topY - gapY;
+        }
+
+        update() {
+            if (this.player.isDead) return;
+            if (hasStarted && !isPaused && timeStopTimer <= 0) {
+                this.cameraY -= towerSpeed;
+            }
+            if (timeStopTimer > 0) timeStopTimer--;
+
+            this.player.update();
+
+            // Lava Events after 3 minutes
+            if (frames % 120 === 0 && (frames / 60) > 180) {
+                const bx = this.xOff + Math.random() * this.width;
+                const by = this.cameraY + HEIGHT + 50;
+                this.lavaBalls.push(new LavaBall(bx, by, (Math.random()-0.5)*4, -15 - Math.random()*10));
+            }
+
+            this.lavaBalls.forEach((b, idx) => {
+                b.update();
+                // Collision with platforms
+                this.platforms.forEach(p => {
+                    if (!p.broken && b.y < p.y + p.h && b.y > p.y && b.x > p.x && b.x < p.x + p.w) {
+                        p.broken = true;
+                        playSound('break');
+                    }
+                });
+                if (b.y - this.cameraY > HEIGHT + 200) this.lavaBalls.splice(idx, 1);
+            });
+
+            this.player.isGrounded = false;
+            if (this.player.vy >= 0) {
+                for (let p of this.platforms) {
+                    if (!p.broken && this.player.x < p.x + p.w && this.player.x + this.player.w > p.x &&
+                        this.player.y + this.player.h > p.y && this.player.y + this.player.h < p.y + p.h + this.player.vy + 10) {
+                        this.player.y = p.y - this.player.h;
+                        this.player.vy = 0;
+                        this.player.isGrounded = true;
+                        if (!p.touched) {
+                            p.touched = true;
+                            this.player.score += 50;
+                            if (p.type === 'boost') { this.player.jumpBoost = 1.7; playSound('powerup'); }
+                            else if (p.type === 'time') { timeStopTimer = 300; playSound('powerup'); }
+                            else playSound('land');
+                        }
+                    }
+                }
+            }
+
+            this.platforms.forEach(p => {
+                if (p.type === 'fragile' && p.touched && !p.broken) {
+                    p.timer += 16;
+                    if (p.timer > 700) { p.broken = true; playSound('break'); }
+                }
+            });
+
+            this.platforms = this.platforms.filter(p => p.y - this.cameraY < HEIGHT + 400);
+            if (this.platforms.length < 25) this.generate();
+        }
+
+        draw(ctx) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.lineWidth = 1;
+            for(let i=0; i<this.width; i+=50) { ctx.beginPath(); ctx.moveTo(this.xOff + i, 0); ctx.lineTo(this.xOff + i, HEIGHT); ctx.stroke(); }
+            
+            this.platforms.forEach(p => p.draw(ctx, this.cameraY));
+            this.lavaBalls.forEach(b => b.draw(ctx, this.cameraY));
+            this.player.draw(ctx);
+
+            const lavaLevel = HEIGHT - 40 + Math.sin(frames * 0.05) * 10;
+            ctx.fillStyle = '#ff4500'; ctx.fillRect(this.xOff, lavaLevel, this.width, 100);
+            if (timeStopTimer > 0) {
+                ctx.fillStyle = 'rgba(155, 89, 182, 0.1)'; ctx.fillRect(this.xOff, 0, this.width, HEIGHT);
+            }
+        }
+    }
+
+    let worlds = [];
+    function startGame(mode) {
+        playerCount = mode; gameState = 'PLAYING'; isPaused = false; hasStarted = false;
+        towerSpeed = 0.8; frames = 0; timeStopTimer = 0;
+        document.getElementById('start-screen').style.display = 'none';
+        document.getElementById('game-over-screen').style.display = 'none';
+        document.getElementById('hud').style.display = 'flex';
+        document.getElementById('waiting-hint').style.display = 'block';
+        worlds = mode === 1 ? [new World(1, 0, WIDTH)] : [new World(1, 0, WIDTH / 2), new World(2, WIDTH / 2, WIDTH / 2)];
+        requestAnimationFrame(loop);
+    }
+
+    function loop() {
+        if (gameState !== 'PLAYING') return;
+        if (!isPaused) {
+            frames++;
+            if (hasStarted && timeStopTimer <= 0) towerSpeed = Math.min(3.8, 0.8 + (frames / 6000));
+            worlds.forEach(w => w.update());
+        }
+        ctx.fillStyle = '#0d0d0d'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        worlds.forEach(w => w.draw(ctx));
+        if (playerCount === 2) { ctx.fillStyle = '#1a1a1a'; ctx.fillRect(WIDTH/2 - 4, 0, 8, HEIGHT); }
+        updateHUD();
+        if (worlds.every(w => w.player.isDead)) endGame();
+        else requestAnimationFrame(loop);
+    }
+
+    function updateHUD() {
+        const hud = document.getElementById('hud');
+        const time = (frames / 60).toFixed(0);
+        const freezeTag = timeStopTimer > 0 ? " [TIME FROZEN]" : "";
+        if (playerCount === 1) {
+            hud.innerHTML = `<span>SCORE: ${worlds[0].player.score}</span> <span>TIME: ${time}s${freezeTag}</span>`;
+        } else {
+            hud.innerHTML = `<span>P1: ${worlds[0].player.score}</span> <span style="margin-left:auto">P2: ${worlds[1].player.score}</span> <span>T: ${time}s</span>`;
+        }
+    }
+
+    function endGame() {
+        gameState = 'OVER';
+        document.getElementById('game-over-screen').style.display = 'block';
+        const results = worlds.map(w => `Player ${w.id}: ${w.player.score} pts`).join('<br>');
+        document.getElementById('final-results').innerHTML = results;
+    }
+</script>
+</body>
+</html>
